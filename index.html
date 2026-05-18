@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/car-wash.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>АвтоМойка — Онлайн запись</title>
+  </head>
+  <body>
+    <div id="error-log" style="color: red; background: #fee; padding: 10px; z-index: 99999; position: absolute; width: 100%; display: none;"></div>
+    <script>
+      window.onerror = function(msg, url, lineNo, columnNo, error) {
+        var el = document.getElementById('error-log');
+        el.style.display = 'block';
+        el.innerHTML += '<p>' + msg + ' ' + url + ':' + lineNo + '</p>';
+        return false;
+      };
+      window.onunhandledrejection = function(event) {
+        var el = document.getElementById('error-log');
+        el.style.display = 'block';
+        el.innerHTML += '<p>Unhandled promise rejection: ' + event.reason + '</p>';
+      };
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

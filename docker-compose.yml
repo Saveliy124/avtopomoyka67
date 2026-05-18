@@ -1,0 +1,71 @@
+services:
+  # ─── База данных ────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: carwash_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-carwash_db}
+      POSTGRES_USER: ${POSTGRES_USER:-carwash_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carwash_pass}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Автоматическая инициализация схемы при первом запуске
+      - ./server/src/sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-carwash_user} -d ${POSTGRES_DB:-carwash_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ─── Backend ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: carwash_backend
+    restart: unless-stopped
+    command: npm run dev
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: ${BACKEND_PORT:-4000}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-carwash_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-carwash_pass}
+      DB_NAME: ${POSTGRES_DB:-carwash_db}
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+
+  # ─── Frontend ───────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: carwash_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # Браузер обращается к бэкенду напрямую с хост-машины,
+      # поэтому используем localhost, а не имя сервиса docker
+      VITE_API_BASE_URL: http://localhost:${BACKEND_PORT:-4000}/api
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      # Монтируем исходники для hot-reload
+      - .:/app
+      # Защищаем node_modules внутри контейнера от перезаписи
+      - /app/node_modules
+
+volumes:
+  postgres_data:

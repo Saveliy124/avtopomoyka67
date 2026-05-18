@@ -1,0 +1,15 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Копируем только package файлы — чтобы слой кэшировался
+COPY package*.json ./
+RUN npm install
+
+# Исходники монтируются через volume в docker-compose (для hot-reload)
+# COPY . .  — не нужен здесь
+
+EXPOSE 5173
+
+# --host обязателен чтобы Vite слушал 0.0.0.0, а не только localhost внутри контейнера
+CMD ["npm", "run", "dev", "--", "--host"]
