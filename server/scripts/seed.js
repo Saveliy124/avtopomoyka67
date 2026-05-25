@@ -7,21 +7,14 @@ const clientPassword = await bcrypt.hash('client123', 10);
 
 try {
   await pool.query(`
-    INSERT INTO users (last_name, first_name, patronymic, phone, email, password, employee_permissions)
+    INSERT INTO users (last_name, first_name, patronymic, phone, password, employee_permissions)
     VALUES
-      ('Иванов', 'Иван', 'Иванович', '+79001112233', 'admin@carwash.local', '${adminPassword}', '{"can_manage_bookings": true, "can_manage_cash": true, "can_manage_services": true, "can_view_reports": true, "can_manage_schedule": true, "can_manage_employees": true, "can_do_washing": true}'),
-      ('Сидоров', 'Пётр', 'Алексеевич', '+79002223344', 'employee@carwash.local', '${employeePassword}', '{"can_manage_bookings": true, "can_manage_cash": false, "can_manage_services": false, "can_view_reports": true, "can_manage_schedule": true, "can_manage_employees": false, "can_do_washing": true}'),
-      ('Петрова', 'Анна', NULL, '+79003334455', 'client@carwash.local', '${clientPassword}', '{"can_manage_bookings": false, "can_manage_cash": false, "can_manage_services": false, "can_view_reports": false, "can_manage_schedule": false, "can_manage_employees": false, "can_do_washing": false}')
-    ON CONFLICT (email) DO UPDATE SET
-      phone = EXCLUDED.phone,
-      email = EXCLUDED.email,
+      ('Иванов', 'Иван', 'Иванович', '+79001112233', '${adminPassword}', '{"can_manage_bookings": true, "can_manage_cash": true, "can_manage_services": true, "can_view_reports": true, "can_manage_schedule": true, "can_manage_employees": true, "can_do_washing": true}'),
+      ('Сидоров', 'Пётр', 'Алексеевич', '+79002223344', '${employeePassword}', '{"can_manage_bookings": true, "can_manage_cash": false, "can_manage_services": false, "can_view_reports": true, "can_manage_schedule": true, "can_manage_employees": false, "can_do_washing": true}'),
+      ('Петрова', 'Анна', NULL, '+79003334455', '${clientPassword}', '{"can_manage_bookings": false, "can_manage_cash": false, "can_manage_services": false, "can_view_reports": false, "can_manage_schedule": false, "can_manage_employees": false, "can_do_washing": false}')
+    ON CONFLICT (phone) DO UPDATE SET
       password = EXCLUDED.password,
       employee_permissions = EXCLUDED.employee_permissions;
-    
-    -- Also ensure phone is set if email exists but phone doesn't
-    UPDATE users SET phone = '+79001112233' WHERE email = 'admin@carwash.local' AND (phone IS NULL OR phone = '');
-    UPDATE users SET phone = '+79002223344' WHERE email = 'employee@carwash.local' AND (phone IS NULL OR phone = '');
-    UPDATE users SET phone = '+79003334455' WHERE email = 'client@carwash.local' AND (phone IS NULL OR phone = '');
 
     INSERT INTO user_roles (user_id, role_id)
     SELECT u.id, r.id
@@ -101,28 +94,6 @@ try {
         AND s.box_id = seed_schedule.box_id
     );
   `);
-
-  // Cash operations seed (empty per user request)
-  /*
-  await pool.query(`
-    INSERT INTO cash_operations (type, amount, description, user_id)
-    VALUES
-      ('income', 1200, 'Комплексная мойка #1', 1),
-      ('income', 600, 'Экспресс мойка #2', 1),
-      ('expense', 5000, 'Закупка автохимии', 1);
-  `);
-  */
-
-  // AI prediction seed
-  const scheduleResult = await pool.query('SELECT id FROM schedule ORDER BY id LIMIT 1');
-  if (scheduleResult.rowCount > 0) {
-    await pool.query(
-      `INSERT INTO ai_predictions (schedule_id, prediction_date, predicted_occupancy, confidence)
-       VALUES ($1, CURRENT_DATE, 0.85, 0.92)
-       ON CONFLICT DO NOTHING`,
-      [scheduleResult.rows[0].id]
-    );
-  }
 
   console.log('Seed data inserted successfully');
 } catch (error) {

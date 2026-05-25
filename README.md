@@ -1,6 +1,6 @@
-# CarWash Management System
+# AutoPomoyka — Система управления автомойкой
 
-Система управления автомойкой: онлайн-запись клиентов, расписание боксов, касса, отчётность, журнал аудита.
+Веб-приложение для управления автомойкой: онлайн-запись клиентов, расписание боксов, касса, отчётность, журнал аудита.
 
 ---
 
@@ -28,6 +28,7 @@ WEBCARS/
 │   ├── api/                    # HTTP-клиенты (axios)
 │   ├── components/             # React-компоненты
 │   │   ├── admin/              # Панели администратора
+│   │   ├── booking/            # Компоненты страницы записи
 │   │   ├── shared/             # Общие компоненты
 │   │   └── ui/                 # Базовые UI-элементы
 │   ├── pages/                  # Страницы приложения
@@ -64,7 +65,17 @@ WEBCARS/
 | `employee` | Расписание, записи мойки, касса (по разрешениям) |
 | `admin` | Полный доступ ко всем разделам |
 
-Разрешения сотрудника (`employee_permissions`): `can_manage_bookings`, `can_manage_cash`, `can_view_reports`, `can_manage_employees`, `can_manage_services`, `can_view_ai_audit`.
+Разрешения сотрудника (`employee_permissions`): `can_manage_bookings`, `can_manage_cash`, `can_view_reports`, `can_manage_employees`, `can_manage_services`, `can_manage_schedule`, `can_do_washing`, `can_view_ai_audit`.
+
+---
+
+## Регистрация и аутентификация
+
+Система использует **номер телефона** в качестве уникального идентификатора. Email не требуется и не используется.
+
+- Регистрация: номер телефона + ФИО + пароль
+- Вход: номер телефона + пароль
+- Авторизация: JWT-токен (хранится в localStorage)
 
 ---
 
@@ -105,11 +116,11 @@ docker compose exec backend npm run db:seed
 
 Создаёт тестовых пользователей:
 
-| Роль | Email | Пароль |
+| Роль | Телефон | Пароль |
 |---|---|---|
-| Администратор | `admin@carwash.local` | `admin123` |
-| Сотрудник | `employee@carwash.local` | `employee123` |
-| Клиент | `client@carwash.local` | `client123` |
+| Администратор | `+79001112233` | `admin123` |
+| Сотрудник | `+79002223344` | `employee123` |
+| Клиент | `+79003334455` | `client123` |
 
 ---
 
@@ -169,13 +180,13 @@ npm run dev
 
 | Метод | Маршрут | Описание |
 |---|---|---|
-| POST | `/api/auth/login` | Авторизация |
-| POST | `/api/auth/register` | Регистрация |
+| POST | `/api/auth/login` | Авторизация по номеру телефона |
+| POST | `/api/auth/register` | Регистрация по номеру телефона |
 | GET | `/api/bookings` | Список записей (своих или всех) |
 | POST | `/api/bookings` | Создать запись |
 | PATCH | `/api/bookings/:id/status` | Изменить статус записи |
 | GET | `/api/slots` | Расписание |
-| POST | `/api/slots/generate-day` | Сгенерировать расписание на день |
+| POST | `/api/slots/generate-day` | Сгенерировать/обновить расписание на день |
 | PATCH | `/api/slots/bulk-status` | Массовое изменение статуса слотов |
 | GET | `/api/services` | Список услуг |
 | GET | `/api/boxes` | Список боксов |

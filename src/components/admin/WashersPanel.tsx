@@ -36,7 +36,7 @@ export function WashersPanel() {
                       </div>
                       <div>
                         <p className="font-semibold text-gray-900">{name || 'Сотрудник'}</p>
-                        <p className="text-xs text-gray-500">{washer.email || 'Email не указан'}</p>
+                        <p className="text-xs text-gray-500">{washer.phone || 'Телефон не указан'}</p>
                       </div>
                     </div>
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${

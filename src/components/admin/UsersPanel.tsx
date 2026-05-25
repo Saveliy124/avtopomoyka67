@@ -184,7 +184,6 @@ export function UsersPanel() {
         user.last_name,
         user.patronymic,
         user.phone,
-        user.email,
       ].filter(Boolean).join(' ').toLowerCase();
 
       return haystack.includes(q);
@@ -213,7 +212,7 @@ export function UsersPanel() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Поиск по имени, телефону или email"
+              placeholder="Поиск по имени или телефону"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full h-10 pl-9 pr-3 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -340,7 +339,7 @@ export function UsersPanel() {
                         {ROLE_LABELS[user.roles[0] || 'client'] || 'Клиент'}
                       </span>
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">{user.phone || user.email || 'Контакты не указаны'}</div>
+                    <div className="text-xs text-gray-500 mt-1">{user.phone || 'Телефон не указан'}</div>
                   </div>
 
                   <div className="flex items-center gap-2">

@@ -8,6 +8,7 @@ import { SlotGrid } from '@/components/booking/SlotGrid';
 import { ExtraServicesSelector } from '@/components/booking/ExtraServicesSelector';
 import { BookingConfirmModal } from '@/components/booking/BookingConfirmModal';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Link } from 'react-router-dom';
 import { Hand, Bot } from 'lucide-react';
 import { formatPrice, formatDuration } from '@/utils/format';
@@ -90,6 +91,7 @@ export function BookingPage() {
     setCarInfo,
   } = useBookingStore();
   const [modalOpen, setModalOpen] = useState(false);
+  const [carInfoTouched, setCarInfoTouched] = useState(false);
 
   // Confirm requires: service, date, slot, car info, and no conflict
   const canConfirm = !!selectedService && !!selectedDate && !!selectedSlot && carInfo.trim().length > 0 && !isSlotConflict;
@@ -108,14 +110,6 @@ export function BookingPage() {
     : selectedSlot && selectedService
     ? `Подтвердить · ${formatPrice(totalPrice)} · ${formatDuration(totalDuration)}`
     : 'Перейти к подтверждению →';
-
-  const generatePlate = () => {
-    const chars = "АВЕКМНОРСТУХ";
-    const nums = Math.floor(100 + Math.random() * 900);
-    const region = Math.floor(10 + Math.random() * 89);
-    const randomChar = () => chars[Math.floor(Math.random() * chars.length)];
-    setCarInfo(`${randomChar()}${nums}${randomChar()}${randomChar()}${region}`);
-  };
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-b from-slate-50 to-white">
@@ -221,18 +215,18 @@ export function BookingPage() {
               <StepHeader step={washType === 'manual' ? 5 : 4} label="Информация об авто" completed={carInfo.trim().length > 0} />
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
-                  Гос. номер <span className="text-red-500">* (Обязательно)</span>
+                  Гос. номер{carInfoTouched && carInfo.trim().length === 0 && (
+                    <span className="text-red-500 ml-1">* Обязательно</span>
+                  )}
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={carInfo}
-                    onChange={(e) => setCarInfo(e.target.value)}
-                    placeholder="Например: А123БВ77"
-                    className="w-full h-10 rounded-lg border border-gray-300 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
-                  />
-                  <Button variant="outline" onClick={generatePlate} className="shrink-0 h-10">Сгенерировать</Button>
-                </div>
+                <Input
+                  type="text"
+                  value={carInfo}
+                  onChange={(e) => setCarInfo(e.target.value)}
+                  onBlur={() => setCarInfoTouched(true)}
+                  placeholder="Например: А123БВ77"
+                  className={`uppercase ${carInfoTouched && carInfo.trim().length === 0 ? 'border-red-400 focus-visible:ring-red-400' : ''}`}
+                />
               </div>
             </motion.section>
           )}

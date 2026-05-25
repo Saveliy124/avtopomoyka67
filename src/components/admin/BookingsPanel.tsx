@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, addDays, subDays, parseISO } from 'date-fns';
 import { toast } from 'sonner';
@@ -37,6 +37,40 @@ export function BookingsPanel() {
   const [isScheduleSettingsOpen, setIsScheduleSettingsOpen] = useState(false);
   const [scheduleStartHour, setScheduleStartHour] = useState('09:00');
   const [scheduleEndHour, setScheduleEndHour] = useState('00:00');
+
+  // Interval (minutes) with persistent "apply always" option
+  const [intervalMinutes, setIntervalMinutes] = useState<number>(() => {
+    const saved = localStorage.getItem('schedule_interval_minutes');
+    return saved ? Number(saved) : 30;
+  });
+  const [intervalMinutesRobot, setIntervalMinutesRobot] = useState<number>(() => {
+    const saved = localStorage.getItem('schedule_interval_minutes_robot');
+    return saved ? Number(saved) : 15;
+  });
+  const [saveIntervalAlways, setSaveIntervalAlways] = useState<boolean>(() =>
+    localStorage.getItem('schedule_interval_save') === '1'
+  );
+
+  // Dev panel — toggle by typing 'd','e','v' in sequence outside any input
+  const [devVisible, setDevVisible] = useState(false);
+  useEffect(() => {
+    const SEQ = ['d', 'e', 'v'];
+    let idx = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const reset = () => { idx = 0; if (timer) { clearTimeout(timer); timer = null; } };
+    const handler = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) { reset(); return; }
+      if (e.key.toLowerCase() === SEQ[idx]) {
+        idx++;
+        if (timer) clearTimeout(timer);
+        if (idx === SEQ.length) { setDevVisible(v => !v); reset(); }
+        else { timer = setTimeout(reset, 1500); }
+      } else { reset(); }
+    };
+    window.addEventListener('keydown', handler, { capture: true });
+    return () => { window.removeEventListener('keydown', handler, { capture: true }); reset(); };
+  }, []);
 
   const handlePrevDay = () => setSelectedDate(format(subDays(parseISO(selectedDate), 1), 'yyyy-MM-dd'));
   const handleNextDay = () => setSelectedDate(format(addDays(parseISO(selectedDate), 1), 'yyyy-MM-dd'));
@@ -120,7 +154,22 @@ export function BookingsPanel() {
       const startH = parseInt(scheduleStartHour.split(':')[0], 10);
       const endH = scheduleEndHour === '00:00' ? 24 : parseInt(scheduleEndHour.split(':')[0], 10);
 
-      const result = await slotApi.generateDaySlots({ date: selectedDate, startHour: startH, endHour: endH });
+      // Persist intervals if user wants
+      if (saveIntervalAlways) {
+        localStorage.setItem('schedule_interval_minutes', String(intervalMinutes));
+        localStorage.setItem('schedule_interval_minutes_robot', String(intervalMinutesRobot));
+        localStorage.setItem('schedule_interval_save', '1');
+      } else {
+        localStorage.removeItem('schedule_interval_save');
+      }
+
+      const result = await slotApi.generateDaySlots({
+        date: selectedDate,
+        startHour: startH,
+        endHour: endH,
+        intervalMinutes,
+        intervalMinutesRobot,
+      });
       queryClient.invalidateQueries({ queryKey: ['slots'] });
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       toast.success(`Расписание обновлено: ${result.slots_created} слотов для ${result.boxes_count} боксов`);
@@ -249,9 +298,9 @@ export function BookingsPanel() {
               {slots && slots.length > 0 ? <Edit className="h-4 w-4" /> : <CalendarPlus className="h-4 w-4" />}
               {slots && slots.length > 0 ? 'Редактировать расписание' : 'Создать расписание на день'}
             </Button>
-            
+
             {isScheduleSettingsOpen && (
-              <div className="absolute top-full left-0 mt-2 p-3 bg-white border border-slate-200 shadow-xl rounded-lg z-50 min-w-[250px] flex flex-col gap-3">
+              <div className="absolute top-full left-0 mt-2 p-3 bg-white border border-slate-200 shadow-xl rounded-lg z-50 min-w-[280px] flex flex-col gap-3">
                 <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Параметры смены</div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -273,6 +322,37 @@ export function BookingsPanel() {
                     </select>
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-1">Интервал ручной (мин)</label>
+                    <input
+                      type="number"
+                      min={5} max={120} step={5}
+                      value={intervalMinutes}
+                      onChange={e => setIntervalMinutes(Math.max(5, Number(e.target.value)))}
+                      className="w-full text-xs h-8 border rounded px-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-1">Интервал робо (мин)</label>
+                    <input
+                      type="number"
+                      min={5} max={60} step={5}
+                      value={intervalMinutesRobot}
+                      onChange={e => setIntervalMinutesRobot(Math.max(5, Number(e.target.value)))}
+                      className="w-full text-xs h-8 border rounded px-2"
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={saveIntervalAlways}
+                    onChange={e => setSaveIntervalAlways(e.target.checked)}
+                    className="h-3.5 w-3.5"
+                  />
+                  Применять всегда
+                </label>
                 <Button size="sm" onClick={generateDaySchedule} disabled={isGeneratingDay} className="w-full mt-1">
                   {isGeneratingDay ? 'Генерация...' : 'Применить'}
                 </Button>
@@ -281,21 +361,22 @@ export function BookingsPanel() {
           </div>
         </div>
 
-
-        <div className="flex items-end gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
-          <div>
-            <label className="text-[10px] text-gray-500 mb-0.5 block">Загрузка %</label>
-            <select value={demoLoad} onChange={e => setDemoLoad(e.target.value)} className="h-8 rounded-md border border-gray-300 px-2 text-xs">
-              <option value="30">30%</option>
-              <option value="50">50%</option>
-              <option value="80">80%</option>
-              <option value="100">100%</option>
-            </select>
+        {devVisible && (
+          <div className="flex items-end gap-2 bg-orange-50 p-2 rounded-lg border border-dashed border-orange-300">
+            <div>
+              <label className="text-[10px] text-orange-500 mb-0.5 block">Загрузка %</label>
+              <select value={demoLoad} onChange={e => setDemoLoad(e.target.value)} className="h-8 rounded-md border border-orange-300 px-2 text-xs">
+                <option value="30">30%</option>
+                <option value="50">50%</option>
+                <option value="80">80%</option>
+                <option value="100">100%</option>
+              </select>
+            </div>
+            <Button size="sm" variant="secondary" className="h-8 text-xs border-orange-200 text-orange-700 hover:bg-orange-100" onClick={generateDemo} disabled={isGenerating}>
+              {isGenerating ? 'Генерация...' : '⚡ Демо-данные'}
+            </Button>
           </div>
-          <Button size="sm" variant="secondary" className="h-8 text-xs" onClick={generateDemo} disabled={isGenerating}>
-            {isGenerating ? 'Генерация...' : 'Заполнить демо-данными'}
-          </Button>
-        </div>
+        )}
       </div>
 
       <Card>

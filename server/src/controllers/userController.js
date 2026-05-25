@@ -6,7 +6,7 @@ import { writeAuditLog } from '../services/auditService.js';
 export const getUsers = async (_req, res, next) => {
   try {
     const result = await query(
-      `SELECT u.id, u.last_name, u.first_name, u.patronymic, u.phone, u.email,
+      `SELECT u.id, u.last_name, u.first_name, u.patronymic, u.phone,
               u.is_active, u.registration_date, u.employee_permissions,
               COUNT(al.id)::int AS total_actions,
               COUNT(al.id) FILTER (
@@ -41,7 +41,7 @@ export const getUsers = async (_req, res, next) => {
 export const getWashers = async (_req, res, next) => {
   try {
     const result = await query(
-      `SELECT u.id, u.last_name, u.first_name, u.patronymic, u.phone, u.email,
+      `SELECT u.id, u.last_name, u.first_name, u.patronymic, u.phone,
               u.is_active, u.registration_date, u.employee_permissions,
               COUNT(al.id)::int AS total_actions,
               COUNT(al.id) FILTER (
@@ -130,7 +130,7 @@ export const createUser = async (req, res, next) => {
       });
 
       const finalResult = await client.query(
-        `SELECT u.id, u.last_name, u.first_name, u.patronymic, u.phone, u.email,
+        `SELECT u.id, u.last_name, u.first_name, u.patronymic, u.phone,
                 u.is_active, u.registration_date, u.employee_permissions,
                 COALESCE(
                   ARRAY_AGG(r.role_name) FILTER (WHERE r.role_name IS NOT NULL),
@@ -194,7 +194,7 @@ export const updateUserPermissions = async (req, res, next) => {
       });
 
       const finalResult = await client.query(
-        `SELECT u.id, u.last_name, u.first_name, u.patronymic, u.phone, u.email,
+        `SELECT u.id, u.last_name, u.first_name, u.patronymic, u.phone,
                 u.is_active, u.registration_date, u.employee_permissions,
                 COALESCE(
                   ARRAY_AGG(r.role_name) FILTER (WHERE r.role_name IS NOT NULL),
@@ -257,7 +257,7 @@ export const updateUserRoles = async (req, res, next) => {
       });
 
       const finalResult = await client.query(
-        `SELECT u.id, u.last_name, u.first_name, u.patronymic, u.phone, u.email,
+        `SELECT u.id, u.last_name, u.first_name, u.patronymic, u.phone,
                 u.is_active, u.registration_date, u.employee_permissions,
                 COALESCE(
                   ARRAY_AGG(r.role_name) FILTER (WHERE r.role_name IS NOT NULL),
@@ -279,6 +279,7 @@ export const updateUserRoles = async (req, res, next) => {
     next(error);
   }
 };
+
 export const deleteUser = async (req, res, next) => {
   try {
     const { id } = req.params;

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -11,7 +12,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 
 const schema = z.object({
   phone: z.string().min(10, 'Введите корректный номер телефона'),
@@ -19,13 +20,6 @@ const schema = z.object({
 });
 
 type FormData = z.infer<typeof schema>;
-
-// Dev accounts for quick testing — login by phone
-const devAccounts = [
-  { role: '🛡️ Админ', phone: '+79001112233', password: 'admin123' },
-  { role: '🔧 Сотрудник', phone: '+79002223344', password: 'employee123' },
-  { role: '👥 Клиент', phone: '+79003334455', password: 'client123' },
-];
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -48,10 +42,6 @@ export function LoginPage() {
   });
 
   const onSubmit = (data: FormData) => mutation.mutate(data);
-
-  const quickLogin = (phone: string, password: string) => {
-    mutation.mutate({ phone, password });
-  };
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 px-4">
@@ -116,30 +106,6 @@ export function LoginPage() {
                 )}
               </Button>
             </form>
-          </CardContent>
-        </Card>
-
-        {/* Quick Dev Switcher — each button logs in immediately */}
-        <Card className="mt-4 border-dashed border-orange-300 bg-orange-50">
-          <CardHeader className="pb-3 pt-4 px-4">
-            <CardTitle className="text-sm text-orange-700">⚡ Быстрый вход (Dev)</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <div className="grid grid-cols-3 gap-2">
-              {devAccounts.map(({ role, phone, password }) => (
-                <Button
-                  key={phone}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="text-xs border-orange-200 text-orange-700 hover:bg-orange-100"
-                  disabled={mutation.isPending}
-                  onClick={() => quickLogin(phone, password)}
-                >
-                  {role}
-                </Button>
-              ))}
-            </div>
           </CardContent>
         </Card>
       </motion.div>

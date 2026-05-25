@@ -26,7 +26,6 @@ export const getSlots = async (req, res, next) => {
       where += ' AND s.is_available = TRUE';
     }
 
-    // Always exclude slots of inactive boxes
     where += ' AND b.is_active = TRUE';
 
     const result = await query(
@@ -68,7 +67,6 @@ export const bulkUpdateSlotsStatus = async (req, res, next) => {
         [is_maintenance, !is_maintenance, ids]
       );
 
-      // If setting maintenance, cancel active bookings for these slots
       if (is_maintenance) {
         await client.query(
           `UPDATE bookings
@@ -135,8 +133,8 @@ export const generateSlots = async (req, res, next) => {
       const insertResult = await client.query(
         `WITH generated AS (
            SELECT generate_series(
-             ($2::date + make_interval(hours => $3::int))::timestamp AT TIME ZONE 'Europe/Moscow',
-             ($2::date + make_interval(hours => $4::int) - make_interval(mins => $5::int))::timestamp AT TIME ZONE 'Europe/Moscow',
+             ($2::text || ' ' || LPAD($3::text, 2, '0') || ':00:00')::timestamp AT TIME ZONE 'Europe/Moscow',
+             ($2::text || ' ' || LPAD($4::text, 2, '0') || ':00:00')::timestamp AT TIME ZONE 'Europe/Moscow' - make_interval(mins => $5::int),
              make_interval(mins => $5::int)
            ) AS appointment_time
          )
@@ -168,121 +166,137 @@ export const generateSlots = async (req, res, next) => {
 };
 
 /**
- * Generate day schedule for ALL active boxes.
- * Creates slots only where they don't already exist.
+ * Convert a date string + hour (in Moscow time, UTC+3) to a UTC ISO timestamp.
+ * Moscow never observes DST, so offset is always +03:00.
+ * hour=24 means next day 00:00 MSK.
+ */
+function mskToUtc(dateStr, hour) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const overflowDays = Math.floor(hour / 24);
+  const localHour = hour % 24;
+
+  // Date.UTC interprets args as UTC; MSK = UTC+3, so UTC = MSK - 3h
+  const utcMs = Date.UTC(y, m - 1, d + overflowDays, localHour, 0, 0, 0) - 3 * 3600 * 1000;
+  return new Date(utcMs).toISOString();
+}
+
+/**
+ * Generate (or regenerate) the day schedule for ALL active boxes.
+ *
+ * Algorithm per box:
+ *  1. Delete all UNBOOKED slots for this box on this date.
+ *  2. Mark all BOOKED slots outside [startHour, endHour) as maintenance.
+ *  3. Insert new slots at the box-specific interval.
+ *  4. Lock any newly-created past slots.
  */
 export const generateDaySlots = async (req, res, next) => {
   try {
-    const { date, startHour = 9, endHour = 24 } = req.body;
+    const {
+      date,
+      startHour = 9,
+      endHour = 24,
+      intervalMinutes: clientIntervalManual,
+      intervalMinutesRobot: clientIntervalRobot,
+    } = req.body;
 
     if (!date) {
       return res.status(400).json({ message: 'date is required' });
     }
 
+    // Build UTC boundary timestamps
+    const startUtc = mskToUtc(date, Number(startHour));        // e.g. 09:00 MSK → UTC
+    const endUtc   = mskToUtc(date, Number(endHour));          // e.g. 24:00 MSK = next day 00:00 MSK → UTC
+
     const result = await withTransaction(async (client) => {
-      // 1. Get active boxes
-      const boxesResult = await client.query('SELECT * FROM boxes WHERE is_active = TRUE ORDER BY box_number');
+      const boxesResult = await client.query(
+        'SELECT * FROM boxes WHERE is_active = TRUE ORDER BY box_number'
+      );
       const boxes = boxesResult.rows;
 
-      // 2. Find existing slots outside the new shift bounds
-      // If endHour is 24, it means up to 23:59.
-      const parsedEndHour = endHour === 24 ? 24 : endHour;
-      
-      const outOfBoundsResult = await client.query(`
-        SELECT id FROM schedule 
-        WHERE DATE(appointment_time AT TIME ZONE 'Europe/Moscow') = $1
-        AND (
-          EXTRACT(HOUR FROM appointment_time AT TIME ZONE 'Europe/Moscow') < $2 
-          OR 
-          EXTRACT(HOUR FROM appointment_time AT TIME ZONE 'Europe/Moscow') >= $3
-        )
-      `, [date, startHour, parsedEndHour]);
-      
-      const invalidSlotIds = outOfBoundsResult.rows.map(r => r.id);
-      
-      if (invalidSlotIds.length > 0) {
-        // Cancel active bookings for these invalid slots
-        await client.query(`
-          UPDATE bookings 
-          SET status = 'cancelled_tech' 
-          WHERE schedule_id = ANY($1::int[]) 
-          AND status NOT IN ('completed', 'cancelled', 'cancelled_tech')
-        `, [invalidSlotIds]);
-        
-        // Delete the invalid slots ONLY if they are not referenced by any bookings (primary or extra)
-        await client.query(`
-          DELETE FROM schedule 
-          WHERE id = ANY($1::int[])
-          AND NOT EXISTS (
-            SELECT 1 FROM bookings 
-            WHERE schedule_id = schedule.id 
-            OR schedule.id = ANY(extra_schedule_ids)
-          )
-        `, [invalidSlotIds]);
-
-        // For slots that couldn't be deleted (because they have bookings), 
-        // make them unavailable and in maintenance mode
-        await client.query(`
-          UPDATE schedule
-          SET is_available = FALSE, is_maintenance = TRUE
-          WHERE id = ANY($1::int[])
-          AND EXISTS (
-            SELECT 1 FROM bookings 
-            WHERE schedule_id = schedule.id 
-            OR schedule.id = ANY(extra_schedule_ids)
-          )
-        `, [invalidSlotIds]);
-      }
-
-      // 3. Generate missing valid slots
       let totalCreated = 0;
 
       for (const box of boxes) {
-        const interval = box.wash_type === 'robot' ? 15 : 30;
+        const interval = box.wash_type === 'robot'
+          ? (Number(clientIntervalRobot) || 15)
+          : (Number(clientIntervalManual) || 30);
 
-        const genResult = await client.query(
-          `WITH generated AS (
-             SELECT generate_series(
-               ($2::date + make_interval(hours => $3::int))::timestamp AT TIME ZONE 'Europe/Moscow',
-               ($2::date + make_interval(hours => $4::int) - make_interval(mins => $5::int))::timestamp AT TIME ZONE 'Europe/Moscow',
-               make_interval(mins => $5::int)
-             ) AS appointment_time
-           )
-           INSERT INTO schedule (appointment_time, box_id, is_available)
-           SELECT g.appointment_time, $1, TRUE
-           FROM generated g
-           WHERE NOT EXISTS (
-             SELECT 1 FROM schedule s
-             WHERE s.box_id = $1 AND s.appointment_time = g.appointment_time
-           )
-           RETURNING *`,
-          [box.id, date, startHour, endHour, interval]
-        );
+        // ── Step 1: Delete unbooked slots for this box on this date ──────────
+        // IMPORTANT: check ANY booking reference (including cancelled) to avoid
+        // FK constraint violations. Slots with any booking are kept.
+        await client.query(`
+          DELETE FROM schedule
+          WHERE box_id = $1
+            AND DATE(appointment_time AT TIME ZONE 'Europe/Moscow') = $2
+            AND NOT EXISTS (
+              SELECT 1 FROM bookings
+              WHERE schedule_id = schedule.id
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM bookings
+              WHERE schedule.id = ANY(extra_schedule_ids)
+            )
+        `, [box.id, date]);
+
+        // ── Step 2: Mark booked out-of-range slots as maintenance ─────────────
+        // Only affects THIS date's slots (bounded by startUtc/endUtc day boundaries).
+        // Day start in UTC for date = mskToUtc(date, 0), day end = mskToUtc(date, 24)
+        const dayStartUtc = mskToUtc(date, 0);
+        const dayEndUtc   = mskToUtc(date, 24);
+        await client.query(`
+          UPDATE schedule
+          SET is_available = FALSE, is_maintenance = TRUE
+          WHERE box_id = $1
+            AND appointment_time >= $2::timestamptz
+            AND appointment_time <  $3::timestamptz
+            AND (
+              appointment_time < $4::timestamptz
+              OR appointment_time >= $5::timestamptz
+            )
+            AND EXISTS (
+              SELECT 1 FROM bookings
+              WHERE schedule_id = schedule.id
+                AND status NOT IN ('cancelled', 'cancelled_tech')
+            )
+        `, [box.id, dayStartUtc, dayEndUtc, startUtc, endUtc]);
+
+        // ── Step 3: Insert new slots at the correct interval ──────────────────
+        const genResult = await client.query(`
+          WITH generated AS (
+            SELECT generate_series(
+              $2::timestamptz,
+              $3::timestamptz - make_interval(mins => $4::int),
+              make_interval(mins => $4::int)
+            ) AS appointment_time
+          )
+          INSERT INTO schedule (appointment_time, box_id, is_available)
+          SELECT g.appointment_time, $1, TRUE
+          FROM generated g
+          WHERE NOT EXISTS (
+            SELECT 1 FROM schedule s
+            WHERE s.box_id = $1 AND s.appointment_time = g.appointment_time
+          )
+          RETURNING *
+        `, [box.id, startUtc, endUtc, interval]);
 
         totalCreated += genResult.rowCount;
       }
 
-      // 4. Immediately lock past slots (appointment_time < NOW()) that were just created
-      //    or already existed but are still marked as available and have no booking
-      await client.query(
-        `UPDATE schedule
-         SET is_available = FALSE
-         WHERE DATE(appointment_time AT TIME ZONE 'Europe/Moscow') = $1
-           AND appointment_time < NOW()
-           AND is_available = TRUE
-           AND is_maintenance = FALSE
-           AND NOT EXISTS (
-             SELECT 1 FROM bookings
-             WHERE schedule_id = schedule.id
-               AND status NOT IN ('cancelled', 'cancelled_tech')
-           )`,
-        [date]
-      );
+      // ── Step 4: Lock past unbooked slots for the date ─────────────────────
+      await client.query(`
+        UPDATE schedule
+        SET is_available = FALSE
+        WHERE DATE(appointment_time AT TIME ZONE 'Europe/Moscow') = $1
+          AND appointment_time < NOW()
+          AND is_available = TRUE
+          AND is_maintenance = FALSE
+          AND NOT EXISTS (
+            SELECT 1 FROM bookings
+            WHERE schedule_id = schedule.id
+              AND status NOT IN ('cancelled', 'cancelled_tech')
+          )
+      `, [date]);
 
-      return {
-        boxes_count: boxes.length,
-        slots_created: totalCreated,
-      };
+      return { boxes_count: boxes.length, slots_created: totalCreated };
     });
 
     await query(
@@ -291,10 +305,7 @@ export const generateDaySlots = async (req, res, next) => {
       [req.user.id, 'generate_day_slots', `date:${date}:created:${result.slots_created}`]
     );
 
-    res.status(201).json({
-      message: 'OK',
-      ...result
-    });
+    res.status(201).json({ message: 'OK', ...result });
   } catch (error) {
     next(error);
   }

@@ -19,7 +19,7 @@ export const slotApi = {
   generateSlots: (data: { box_id: number; date: string }) =>
     api.post<Slot[]>('/slots/generate', data).then((r) => r.data),
 
-  generateDaySlots: (data: { date: string; startHour?: number; endHour?: number }) =>
+  generateDaySlots: (data: { date: string; startHour?: number; endHour?: number; intervalMinutes?: number; intervalMinutesRobot?: number }) =>
     api.post<{ boxes_count: number; slots_created: number }>('/slots/generate-day', data).then((r) => r.data),
 
   bulkUpdateStatus: (data: { ids: number[]; is_maintenance: boolean }) =>

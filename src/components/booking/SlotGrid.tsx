@@ -9,13 +9,34 @@ import { Skeleton } from '@/components/ui/skeleton';
 import type { WashType } from '@/store/booking.store';
 import type { Slot } from '@/types';
 
-const SLOT_INTERVAL: Record<WashType, number> = {
+const SLOT_INTERVAL_FALLBACK: Record<WashType, number> = {
   manual: 30,
   robot: 15,
 };
 
 interface Props {
   washType: WashType;
+}
+
+/**
+ * Compute the actual slot interval for a specific box from the loaded slots array.
+ * Finds the minimum positive time gap between consecutive slots of the same box.
+ * Returns the fallback value if it cannot be determined.
+ */
+function computeBoxInterval(slots: Slot[], boxId: number, fallback: number): number {
+  const times = slots
+    .filter(s => s.box_id === boxId)
+    .map(s => new Date(s.appointment_time).getTime())
+    .sort((a, b) => a - b);
+
+  if (times.length < 2) return fallback;
+
+  let minDiff = Infinity;
+  for (let i = 1; i < times.length; i++) {
+    const diff = (times[i] - times[i - 1]) / 60_000;
+    if (diff > 0 && diff < minDiff) minDiff = diff;
+  }
+  return isFinite(minDiff) ? minDiff : fallback;
 }
 
 export function SlotGrid({ washType }: Props) {
@@ -30,26 +51,35 @@ export function SlotGrid({ washType }: Props) {
     enabled: !!selectedDate && !!washType,
   });
 
-  // Total duration = base service + selected extras
-  const serviceDuration = selectedService?.duration_minutes ?? 0;
-  const extrasDuration = selectedExtras.reduce((sum, e) => sum + (e.duration_minutes ?? 0), 0);
-  const totalDuration = serviceDuration + extrasDuration;
-  const intervalMins = SLOT_INTERVAL[washType];
-  const slotsNeeded = Math.max(1, Math.ceil(totalDuration / intervalMins));
-
-  // Build set of timestamps that would be "covered" by the selected slot
-  // Map of timestamp(ms) -> sequential index among covered slots (for wave delay)
-  const coveredTimes = new Map<number, number>();
-  if (selectedSlot && slotsNeeded > 1) {
-    const startMs = new Date(selectedSlot.appointment_time).getTime();
-    for (let i = 1; i < slotsNeeded; i++) {
-      coveredTimes.set(startMs + i * intervalMins * 60_000, i);
+  // ── Per-box interval map ─────────────────────────────────────────────────
+  // Keyed by box_id → actual interval in minutes for that box.
+  const boxIntervals: Record<number, number> = {};
+  if (slots) {
+    const boxIds = [...new Set(slots.map(s => s.box_id))];
+    for (const id of boxIds) {
+      boxIntervals[id] = computeBoxInterval(slots, id, SLOT_INTERVAL_FALLBACK[washType]);
     }
   }
 
+  // Global display interval = minimum among all boxes (worst case for "fit" display).
+  // Used only for slotsNeeded shown in tooltip; per-box checks use box-specific intervals.
+  const fallbackInterval = SLOT_INTERVAL_FALLBACK[washType];
+  const globalInterval = Object.keys(boxIntervals).length > 0
+    ? Math.min(...Object.values(boxIntervals))
+    : fallbackInterval;
+
+  // ── Service duration ──────────────────────────────────────────────────────
+  const serviceDuration = selectedService?.duration_minutes ?? 0;
+  const extrasDuration = selectedExtras.reduce((sum, e) => sum + (e.duration_minutes ?? 0), 0);
+  const totalDuration = serviceDuration + extrasDuration;
+
+  // ── canFitService: checks per-box with box-specific interval ─────────────
+  // Returns true if ANY active box can fit the full service starting at slotTime.
   const canFitService = (slotTime: string): boolean => {
-    if (!slots || slotsNeeded <= 1) return true;
+    if (!slots || totalDuration === 0) return true;
     const startMs = new Date(slotTime).getTime();
+
+    // Group available slot timestamps by box
     const byBox: Record<number, Set<number>> = {};
     for (const s of slots) {
       if (s.is_available && !s.is_maintenance) {
@@ -57,17 +87,43 @@ export function SlotGrid({ washType }: Props) {
         byBox[s.box_id].add(new Date(s.appointment_time).getTime());
       }
     }
-    for (const times of Object.values(byBox)) {
+
+    for (const [boxIdStr, times] of Object.entries(byBox)) {
+      const boxId = Number(boxIdStr);
+      const bInterval = boxIntervals[boxId] ?? fallbackInterval;
+      const bSlotsNeeded = Math.max(1, Math.ceil(totalDuration / bInterval));
+      if (bSlotsNeeded <= 1) return true;
+
       let ok = true;
-      for (let i = 0; i < slotsNeeded; i++) {
-        if (!times.has(startMs + i * intervalMins * 60_000)) { ok = false; break; }
+      for (let i = 0; i < bSlotsNeeded; i++) {
+        if (!times.has(startMs + i * bInterval * 60_000)) { ok = false; break; }
       }
       if (ok) return true;
     }
     return false;
   };
 
-  // De-duplicate by time — prefer available slots
+  // ── coveredTimes: highlight slots that will be consumed by the selected slot ──
+  // Uses the interval of the *selected* slot's box specifically.
+  const selectedBoxInterval = selectedSlot
+    ? (boxIntervals[selectedSlot.box_id] ?? fallbackInterval)
+    : fallbackInterval;
+  const selectedSlotsNeeded = totalDuration > 0
+    ? Math.max(1, Math.ceil(totalDuration / selectedBoxInterval))
+    : 1;
+
+  const coveredTimes = new Map<number, number>();
+  if (selectedSlot && selectedSlotsNeeded > 1) {
+    const startMs = new Date(selectedSlot.appointment_time).getTime();
+    for (let i = 1; i < selectedSlotsNeeded; i++) {
+      coveredTimes.set(startMs + i * selectedBoxInterval * 60_000, i);
+    }
+  }
+
+  // For tooltip: slots needed using global (min) interval
+  const tooltipSlotsNeeded = Math.max(1, Math.ceil(totalDuration / globalInterval));
+
+  // ── De-duplicate by time — prefer available slots ─────────────────────────
   const uniqueSlots = (() => {
     const map = new Map<string, Slot>();
     if (!slots) return [];
@@ -88,7 +144,7 @@ export function SlotGrid({ washType }: Props) {
     if (!selectedSlot) { setSlotConflict(false); return; }
     setSlotConflict(!canFitService(selectedSlot.appointment_time));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSlot?.id, slotsNeeded, slots]);
+  }, [selectedSlot?.id, totalDuration, slots]);
 
   if (!selectedDate) {
     return <div className="text-gray-400 text-sm text-center py-8">Выберите дату для просмотра доступных слотов</div>;
@@ -137,9 +193,9 @@ export function SlotGrid({ washType }: Props) {
         {uniqueSlots.map((slot) => {
           const slotMs = new Date(slot.appointment_time).getTime();
           const isSelected = selectedSlot?.appointment_time === slot.appointment_time;
-          const coveredIdx = coveredTimes.get(slotMs); // undefined if not covered
+          const coveredIdx = coveredTimes.get(slotMs);
           const isCovered = coveredIdx !== undefined;
-          const waveDelay = isCovered ? `${(coveredIdx! / (slotsNeeded - 1)) * 0.6}s` : '0s';
+          const waveDelay = isCovered ? `${(coveredIdx! / (selectedSlotsNeeded - 1)) * 0.6}s` : '0s';
           const isMaintenance = slot.is_maintenance;
           const isPastUnavailable =
             slotMs < Date.now() && !slot.is_available && !isMaintenance && !slot.has_booking;
@@ -159,7 +215,7 @@ export function SlotGrid({ washType }: Props) {
               disabled={isDisabled}
               title={
                 isMaintenance ? 'Технические работы'
-                : noRoom ? `Не хватает ${slotsNeeded} слотов подряд для этой услуги`
+                : noRoom ? `Не хватает ${tooltipSlotsNeeded} слотов подряд для этой услуги`
                 : isCovered ? `Войдёт в промежуток вашей услуги`
                 : undefined
               }

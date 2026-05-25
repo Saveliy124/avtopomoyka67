@@ -15,7 +15,6 @@ export interface User {
   first_name: string;
   patronymic: string | null;
   phone: string | null;
-  email: string | null;
   is_active: boolean;
   registration_date: string;
   employee_permissions: EmployeePermissions;

@@ -7,7 +7,6 @@ const USER_SELECT = `
     u.first_name,
     u.patronymic,
     u.phone,
-    u.email,
     u.password,
     u.is_active,
     u.registration_date,
@@ -27,17 +26,6 @@ export const getUserById = async (id) => {
      WHERE u.id = $1
      GROUP BY u.id`,
     [id]
-  );
-
-  return result.rows[0] || null;
-};
-
-export const getUserByEmail = async (email) => {
-  const result = await query(
-    `${USER_SELECT}
-     WHERE u.email = $1
-     GROUP BY u.id`,
-    [email]
   );
 
   return result.rows[0] || null;
