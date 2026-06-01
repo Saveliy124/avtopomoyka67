@@ -12,7 +12,11 @@ interface CreateBookingPayload {
 }
 
 export const bookingApi = {
+  // Admin panels: returns all bookings for admin/employee, own bookings for client
   getMyBookings: () => api.get<Booking[]>('/bookings').then((r) => r.data),
+
+  // Personal cabinet: always returns only the current user's own bookings
+  getCabinetBookings: () => api.get<Booking[]>('/bookings?self=true').then((r) => r.data),
 
   createBooking: (data: CreateBookingPayload) =>
     api.post<Booking>('/bookings', data).then((r) => r.data),

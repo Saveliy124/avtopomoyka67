@@ -93,8 +93,21 @@ export function BookingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [carInfoTouched, setCarInfoTouched] = useState(false);
 
-  // Confirm requires: service, date, slot, car info, and no conflict
-  const canConfirm = !!selectedService && !!selectedDate && !!selectedSlot && carInfo.trim().length > 0 && !isSlotConflict;
+  // Russian license plate: 1 letter + 3 digits + 2 letters + 2-3 digit region code
+  // Accepts both Cyrillic (АВЕКМНОРСТУХ) and Latin look-alikes (ABEKMHOPCTYX)
+  const PLATE_REGEX = /^[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}$/i;
+  const isPlateValid = (val: string) => PLATE_REGEX.test(val.trim().replace(/\s/g, ''));
+
+  const plateError = carInfoTouched
+    ? carInfo.trim().length === 0
+      ? 'Введите гос. номер'
+      : !isPlateValid(carInfo)
+      ? 'Неверный формат. Пример: А123БВ77 или Е456МК177'
+      : null
+    : null;
+
+  // Confirm requires: service, date, slot, valid plate, and no conflict
+  const canConfirm = !!selectedService && !!selectedDate && !!selectedSlot && carInfo.trim().length > 0 && isPlateValid(carInfo) && !isSlotConflict;
 
   // If conflict is due to extra services — tell user specifically
   const conflictFromExtras = isSlotConflict && selectedExtras.length > 0;
@@ -212,21 +225,33 @@ export function BookingPage() {
           {selectedSlot && !isSlotConflict && (
             <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
               className="bg-white/90 backdrop-blur-sm rounded-2xl border p-6 shadow-sm">
-              <StepHeader step={washType === 'manual' ? 5 : 4} label="Информация об авто" completed={carInfo.trim().length > 0} />
+              <StepHeader step={washType === 'manual' ? 5 : 4} label="Информация об авто" completed={carInfo.trim().length > 0 && isPlateValid(carInfo)} />
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">
-                  Гос. номер{carInfoTouched && carInfo.trim().length === 0 && (
-                    <span className="text-red-500 ml-1">* Обязательно</span>
+                  Гос. номер
+                  {plateError && (
+                    <span className="text-red-500 ml-1 font-normal text-xs">{plateError}</span>
                   )}
                 </label>
                 <Input
                   type="text"
                   value={carInfo}
-                  onChange={(e) => setCarInfo(e.target.value)}
+                  onChange={(e) => setCarInfo(e.target.value.toUpperCase())}
                   onBlur={() => setCarInfoTouched(true)}
                   placeholder="Например: А123БВ77"
-                  className={`uppercase ${carInfoTouched && carInfo.trim().length === 0 ? 'border-red-400 focus-visible:ring-red-400' : ''}`}
+                  className={plateError ? 'border-red-400 focus-visible:ring-red-400' : ''}
                 />
+                {carInfoTouched && carInfo.trim().length > 0 && !isPlateValid(carInfo) && (
+                  <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+                    <p className="text-xs font-medium text-blue-700 mb-2">Допустимые буквы в номере:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['А', 'В', 'Е', 'К', 'М', 'Н', 'О', 'Р', 'С', 'Т', 'У', 'Х'].map((l) => (
+                        <span key={l} className="px-2 py-0.5 bg-white border border-blue-300 rounded text-sm font-mono font-bold text-blue-800">{l}</span>
+                      ))}
+                    </div>
+                    <p className="text-xs text-blue-500 mt-1.5">Только буквы, внешне похожие на латинские (A, B, E, K, M, H, O, P, C, T, Y, X)</p>
+                  </div>
+                )}
               </div>
             </motion.section>
           )}

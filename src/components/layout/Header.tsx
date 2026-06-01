@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Car, LogOut, User, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
 import { hasRole } from '@/utils/permissions';
 import { formatFullName } from '@/utils/format';
@@ -16,9 +17,11 @@ import { Button } from '@/components/ui/button';
 export function Header() {
   const { user, isAuthenticated, logout } = useAuthStore();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const handleLogout = () => {
     logout();
+    queryClient.clear();
     navigate('/');
   };
 

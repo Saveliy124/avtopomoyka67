@@ -23,14 +23,14 @@ export function CabinetPage() {
   const queryClient = useQueryClient();
 
   const { data: bookings, isLoading, isError } = useQuery({
-    queryKey: ['bookings'],
-    queryFn: bookingApi.getMyBookings,
+    queryKey: ['bookings', 'my', user.id],
+    queryFn: bookingApi.getCabinetBookings,
   });
 
   const cancelMutation = useMutation({
     mutationFn: bookingApi.cancelBooking,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['bookings', 'my', user.id] });
       toast.success('Запись отменена');
     },
     onError: () => toast.error('Ошибка при отмене'),

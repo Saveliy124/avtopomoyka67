@@ -8,10 +8,16 @@ const ACTIVE_STATUSES = ['confirmed', 'in_progress'];
 
 export const getMyBookings = async (req, res, next) => {
   try {
+    // ?self=true forces filtering by current user's ID regardless of role.
+    // Used by the personal cabinet so admin/employee only see their own bookings there.
+    const forceSelf = req.query.self === 'true';
+
     const canSeeAll =
-      hasRole(req.user, 'admin') ||
-      hasPermission(req.user, PERMISSIONS.MANAGE_BOOKINGS) ||
-      hasPermission(req.user, PERMISSIONS.DO_WASHING);
+      !forceSelf && (
+        hasRole(req.user, 'admin') ||
+        hasPermission(req.user, PERMISSIONS.MANAGE_BOOKINGS) ||
+        hasPermission(req.user, PERMISSIONS.DO_WASHING)
+      );
 
     const result = await query(
       `SELECT bk.id,
